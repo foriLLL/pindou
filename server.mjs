@@ -22,6 +22,7 @@ const BASE_URL = env('OPENAI_BASE_URL', 'https://api.openai.com/v1').replace(/\/
 // 可选：要记录到日志的上游响应头（逗号分隔），用于观察额度/限流，例如 x-ratelimit-remaining-requests
 const LOG_HEADERS = env('LOG_HEADERS', '').split(',').map((s) => s.trim()).filter(Boolean);
 const API_KEY = env('OPENAI_API_KEY');
+const ADMIN_TOKEN = env('ADMIN_TOKEN', ''); // 统计看板口令；不设置则看板接口关闭
 const MODELS = env('IMAGE_MODELS', 'gpt-image-2.5-flare,gpt-image-2.5-sunburst').split(',');
 const DATA_DIR = env('DATA_DIR', path.join(ROOT, 'data'));
 const MB = 1024 * 1024;
@@ -46,6 +47,8 @@ const LIMIT = {
   powBits: +env('POW_BITS', 18),
   srcKeepDays: +env('SRC_KEEP_DAYS', 30),
   minFreeMB: +env('MIN_FREE_MB', 500),    // 磁盘剩余低于此值时拒绝新的照片任务
+  eventsPerIp: +env('EVENTS_PER_IP', 5000), // 每 IP 每天最多上报的埋点事件
+  eventKeepDays: +env('EVENT_KEEP_DAYS', 180),
 };
 if (!API_KEY) { console.error('OPENAI_API_KEY missing'); process.exit(1); }
 
@@ -187,6 +190,7 @@ pump();
 // 维护：每小时清理过期原图，每天备份数据库
 const maintain = () => {
   try {
+    store.purgeOldEvents(LIMIT.eventKeepDays);
     const n = store.purgeOldSources(LIMIT.srcKeepDays);
     if (n) console.log(`[maintain] purged ${n} old source images`);
     store.backup();
@@ -364,6 +368,24 @@ async function createJob(req, res, url, userId, ip, from) {
   return send(res, 202, jobView(store.getJob(id)));
 }
 
+// 埋点事件白名单校验：名字只能是小写字母和下划线，属性只保留少量简单值
+function cleanEvent(e) {
+  if (!e || typeof e.n !== 'string' || !/^[a-z_]{2,32}$/.test(e.n)) return null;
+  let p = null;
+  if (e.p && typeof e.p === 'object' && !Array.isArray(e.p)) {
+    p = {};
+    for (const [k, v] of Object.entries(e.p).slice(0, 8)) {
+      if (!/^[a-zA-Z_]{1,24}$/.test(k)) continue;
+      if (typeof v === 'number' && Number.isFinite(v)) p[k] = Math.round(v * 100) / 100;
+      else if (typeof v === 'boolean') p[k] = v;
+      else if (typeof v === 'string') p[k] = v.slice(0, 60);
+    }
+    if (!Object.keys(p).length) p = null;
+  }
+  const t = Number.isFinite(+e.t) ? Math.min(Date.now(), Math.max(Date.now() - 3600_000, +e.t)) : Date.now();
+  return { n: e.n, p, t };
+}
+
 function deleteJob(job) {
   if (job.status === 'queued') {
     // 还没开始：直接取消（仍计入当天次数，防止“提交-删除”反复刷）
@@ -420,6 +442,34 @@ async function handle(req, res) {
     store.touchUser(id);
     setUserCookie(req, res, id);
     return send(res, 200, { id, usage: usage(id, ip) });
+  }
+
+  // 埋点上报（navigator.sendBeacon 发来的是 text/plain）
+  if (p === '/api/t' && req.method === 'POST') {
+    let buf;
+    try { buf = await readBody(req, MAX_JSON); } catch (e) { return e instanceof TooLarge ? tooLarge(res, '内容') : undefined; }
+    const body = parseJson(buf);
+    if (!body || typeof body.sid !== 'string' || !/^[A-Za-z0-9_-]{8,40}$/.test(body.sid)) return send(res, 400, { error: 'bad' });
+    const events = (Array.isArray(body.events) ? body.events : []).slice(0, 50).map(cleanEvent).filter(Boolean);
+    if (daily.hit(`ev:${ip}`, events.length) > LIMIT.eventsPerIp) return send(res, 204, '');
+    const meta = { device: body.device === 'mobile' ? 'mobile' : 'desktop', source: typeof body.source === 'string' ? body.source.slice(0, 60) : null };
+    const active = Math.max(0, Math.min(120, Math.round(+body.active || 0)));
+    try { store.track(body.sid, cookieUser(req), meta, events, active); } catch (e) { console.error('[track]', e.message); }
+    return send(res, 204, '');
+  }
+
+  // 统计看板数据（需要管理口令；同一 IP 一天输错 20 次就锁定）
+  if (p === '/api/admin/stats' && req.method === 'GET') {
+    if (!ADMIN_TOKEN) return send(res, 404, { error: 'not found' });
+    if (daily.get(`adm:${ip}`) >= 20) return send(res, 429, { error: '尝试次数太多，明天再试' });
+    const token = String(req.headers['x-admin-token'] || '');
+    if (token.length !== ADMIN_TOKEN.length || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(ADMIN_TOKEN))) {
+      daily.hit(`adm:${ip}`);
+      return send(res, 401, { error: '口令不对' });
+    }
+    const days = Math.max(1, Math.min(180, +url.searchParams.get('days') || 7));
+    const since = dayStart() - (days - 1) * 86400_000;
+    return send(res, 200, { days, since, ...store.stats(since, PRESETS) });
   }
 
   // 以下接口都需要用户 ID

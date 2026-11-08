@@ -1,0 +1,50 @@
+:root {
+  --bg: #faf6f0; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6560; --faint: #a39b91; --line: #ebe4da;
+  --accent: #e8603e; --accent-soft: #fbe3da; --grid: #efe8de;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1a1816; --card: #24211e; --ink: #f2ede6; --muted: #a39b91; --faint: #7a7068; --line: #38332d; --accent: #ff8a66; --accent-soft: #3a2820; --grid: #2f2a25; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+.top { max-width: 1200px; margin: 0 auto; padding: 20px 16px 8px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 20px; }
+h2 { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: .06em; margin: 0 0 10px; }
+h3 { font-size: 14px; margin: 0 0 12px; }
+h3 small { color: var(--faint); font-weight: 400; margin-left: 6px; }
+main { max-width: 1200px; margin: 0 auto; padding: 8px 16px 40px; display: grid; gap: 18px; }
+section { display: grid; gap: 14px; }
+.ranges { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.ranges button { border: 0; background: none; color: var(--muted); padding: 6px 14px; border-radius: 999px; cursor: pointer; font: inherit; }
+.ranges button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.tile span { display: block; color: var(--muted); font-size: 12px; }
+.tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile small { color: var(--faint); font-size: 12px; }
+.two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.three { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .bar { fill: var(--accent); }
+.chart .bar:hover { fill: var(--ink); }
+.chart .axis { fill: var(--faint); font-size: 10px; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.empty { color: var(--faint); padding: 20px 0; text-align: center; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr auto; align-items: center; gap: 10px; margin: 6px 0; }
+.hbar .label { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar .track { display: block; height: 12px; background: var(--grid); border-radius: 0 4px 4px 0; overflow: hidden; }
+.hbar .fill { display: block; height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; }
+.hbar .val { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 64px; text-align: right; }
+.table-wrap { max-height: 360px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--card); }
+td.num, th.num { text-align: right; }
+.login { max-width: 420px; margin: 60px auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 10px; }
+.login input { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; font-size: 16px; }
+.login button { padding: 10px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.err { color: var(--accent); margin: 0; min-height: 1.5em; }
+.foot { color: var(--faint); font-size: 12px; }

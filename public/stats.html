@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>拼豆图纸 · 数据看板</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='9' cy='9' r='6' fill='%23ff7a59'/><circle cx='23' cy='9' r='6' fill='%23ffc857'/><circle cx='9' cy='23' r='6' fill='%234cb8a5'/><circle cx='23' cy='23' r='6' fill='%235b7cfa'/></svg>">
+<link rel="stylesheet" href="stats.css">
+</head>
+<body>
+<header class="top">
+  <h1>数据看板</h1>
+  <div class="ranges" id="ranges">
+    <button data-days="1">今天</button>
+    <button data-days="7" class="on">7 天</button>
+    <button data-days="30">30 天</button>
+    <button data-days="90">90 天</button>
+  </div>
+</header>
+
+<main>
+  <form class="login" id="login" hidden>
+    <label for="token">管理口令</label>
+    <input id="token" type="password" autocomplete="current-password" placeholder="服务器 /etc/pindou/env 里的 ADMIN_TOKEN">
+    <button type="submit">查看</button>
+    <p class="err" id="loginErr"></p>
+  </form>
+
+  <div id="board" hidden>
+    <section>
+      <h2>流量</h2>
+      <div class="tiles" id="trafficTiles"></div>
+    </section>
+    <section>
+      <h2>生成</h2>
+      <div class="tiles" id="jobTiles"></div>
+    </section>
+    <section class="two">
+      <div class="panel"><h3>每天访客数</h3><div class="chart" id="chartVisitors"></div></div>
+      <div class="panel"><h3>每天 AI 生成数</h3><div class="chart" id="chartJobs"></div></div>
+    </section>
+    <section class="two">
+      <div class="panel"><h3>转化漏斗 <small>按会话计</small></h3><div id="funnel"></div></div>
+      <div class="panel"><h3>点击与操作排行</h3><div class="table-wrap"><table id="events"></table></div></div>
+    </section>
+    <section class="three">
+      <div class="panel"><h3>风格</h3><div id="distStyle"></div></div>
+      <div class="panel"><h3>下载格式</h3><div id="distDownload"></div></div>
+      <div class="panel"><h3>下载时用的色卡</h3><div id="distPalette"></div></div>
+      <div class="panel"><h3>生成方式</h3><div id="distMode"></div></div>
+      <div class="panel"><h3>设备</h3><div id="distDevice"></div></div>
+      <div class="panel"><h3>来源</h3><div id="distSource"></div></div>
+    </section>
+    <p class="foot" id="foot"></p>
+  </div>
+</main>
+<script type="module" src="stats.js"></script>
+</body>
+</html>

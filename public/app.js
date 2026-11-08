@@ -1,6 +1,7 @@
 import { buildPattern, pixelGridOf, GRID_MIN_CONF } from './pattern.js';
 import { buildPrintPdf } from './print.js';
 import { solvePow } from './pow.js';
+import { track, trackOnce } from './track.js';
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -48,6 +49,7 @@ function navigate(hash, replace = false) {
 
 function renderRoute() {
   const h = location.hash;
+  track('route_view', { route: h === '#works' ? 'works' : h.startsWith('#job=') ? 'job' : 'create' });
   if (h === '#works') return openHistory();
   const m = h.match(/^#job=([0-9a-f-]{36})$/);
   if (m) return openJob(m[1]);
@@ -103,8 +105,8 @@ function bindAccount() {
   $('navMe').addEventListener('click', openMe);
   $('meClose').addEventListener('click', () => $('meDialog').close());
   $('meDialog').addEventListener('click', (e) => { if (e.target === $('meDialog')) $('meDialog').close(); });
-  $('meCopyId').addEventListener('click', () => copyText(fmtId(state.user), '已复制 ID'));
-  $('meCopyLink').addEventListener('click', () => copyText(syncLink(), '已复制同步链接，在另一台设备打开即可'));
+  $('meCopyId').addEventListener('click', () => { track('sync_copy_id'); copyText(fmtId(state.user), '已复制 ID'); });
+  $('meCopyLink').addEventListener('click', () => { track('sync_copy_link'); copyText(syncLink(), '已复制同步链接，在另一台设备打开即可'); });
   $('meSwitchBtn').addEventListener('click', () => switchUser($('meSwitchInput').value));
   $('meSwitchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') switchUser($('meSwitchInput').value); });
   $('navHistory').addEventListener('click', () => navigate('#works'));
@@ -119,6 +121,7 @@ const syncLink = () => `${location.origin}${location.pathname}#sync=${fmtId(stat
 
 function openMe() {
   if (!state.user) return;
+  track('me_open');
   $('meIdBig').textContent = fmtId(state.user);
   try {
     const qr = window.qrcode(0, 'M'); qr.addData(syncLink()); qr.make();
@@ -138,6 +141,7 @@ async function switchUser(raw, silent) {
   if (!id) return;
   const r = await fetch('api/me/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
   const d = await r.json().catch(() => ({}));
+  track('id_switch', { ok: r.ok });
   if (!r.ok) { showToast(d.error || '切换失败'); return false; }
   setUser(d);
   $('meDialog').close();
@@ -214,6 +218,7 @@ async function onHistoryClick(e) {
   if (del) {
     e.stopPropagation();
     if (!confirm('删除这张作品？删除后无法恢复。')) return;
+    track('history_delete');
     await fetch(`api/jobs/${del.dataset.del}`, { method: 'DELETE' });
     del.closest('.hcard').remove();
     $('histEmpty').hidden = $('histGrid').children.length > 0;
@@ -222,6 +227,7 @@ async function onHistoryClick(e) {
   const card = e.target.closest('.hcard');
   if (!card) return;
   if (card.dataset.status === 'error') return showToast('这张生成失败了，可以重新生成一张');
+  track('history_item_open');
   navigate(`#job=${card.dataset.id}`);
 }
 
@@ -255,6 +261,7 @@ function initStyle(cfg) {
   syncStyle();
   $('presetChips').addEventListener('click', (e) => {
     const id = e.target.closest('[data-preset]')?.dataset.preset; if (!id) return;
+    track('style_select', { preset: id });
     if (id === 'custom') {
       $('style').value = state.customText; state.basePreset = 'custom';
       $('promptDetails').open = true; $('style').focus();
@@ -266,6 +273,7 @@ function initStyle(cfg) {
       state.customText = $('style').value;
       try { localStorage.setItem(STYLE_KEY, state.customText); } catch {}
     }
+    trackOnce('prompt_edit', { preset: state.basePreset });
     syncStyle();
   });
   $('styleReset').addEventListener('click', () => { applyPreset(state.basePreset); syncStyle(); });
@@ -343,11 +351,13 @@ function bindUpload() {
   for (const img of $('subjectExamples').querySelectorAll('img')) img.addEventListener('error', () => img.remove());
   $('subjectExamples').addEventListener('click', (e) => {
     const card = e.target.closest('.excard'); if (!card) return;
+    track('example_click', { idx: [...card.parentElement.children].indexOf(card) });
     $('subject').value = card.dataset.text; syncGenBtn();
     for (const c of $('subjectExamples').children) c.classList.toggle('on', c === card);
   });
   // 结果页的“重新生成”：文字创作按描述重画，照片按原图重画
   const toAi = () => {
+    track('regen_click', { mode: state.lastMode || '' });
     setDirect(false);
     if (state.lastMode === 'direct') { state.job = null; return state.srcBlob ? cartoonize(state.srcBlob) : reset(); }
     return rerunCurrent();
@@ -355,7 +365,7 @@ function bindUpload() {
   $('regen').addEventListener('click', toAi);
   $('toAi').addEventListener('click', toAi);
   $('regen2').addEventListener('click', toAi);
-  for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', syncMode);
+  for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', () => { syncMode(); track('mode_select', { mode: currentMode() }); });
   // 手机浏览器返回/恢复页面时可能沿用上次的选项，每次进入都重置为照片转换
   window.addEventListener('pageshow', () => { document.querySelector('input[name=mode][value=ai]').checked = true; syncMode(); });
 }
@@ -371,6 +381,7 @@ async function pick(file) {
     state.srcOriginal = /^image\/(png|gif|webp|bmp)$/.test(file.type) ? file : blob;
     if (state.pickedUrl) URL.revokeObjectURL(state.pickedUrl);
     state.pickedUrl = URL.createObjectURL(blob);
+    track('image_pick', { mode: currentMode(), type: (file.type || file.name.split('.').pop() || '').slice(0, 20), kb: Math.round(file.size / 1024) });
     $('pickedImg').src = state.pickedUrl;
     $('pickedMeta').textContent = file.name || '粘贴的图片';
     $('picked').hidden = false; $('drop').hidden = true;
@@ -386,6 +397,7 @@ async function pick(file) {
 async function generate() {
   const mode = currentMode();
   if ($('genBtn').disabled) return;
+  track('generate_click', { mode, preset: mode === 'direct' ? '' : (styleEdited() ? 'edited:' : '') + state.basePreset });
   if (mode === 'text') return textGenerate();
   if (!state.srcBlob) return;
   if (mode === 'direct') {
@@ -398,6 +410,8 @@ async function generate() {
   state.job = null;
   await cartoonize(state.srcBlob);
 }
+
+const styleEdited = () => !state.presets?.some((p) => p.prompt === $('style').value.trim());
 
 function syncGenBtn() {
   const mode = currentMode();
@@ -459,6 +473,7 @@ function show(which) {
 }
 
 function showError(msg) {
+  track('error_shown', { msg: String(msg).slice(0, 40) });
   $('error').textContent = msg; $('error').hidden = false;
 }
 
@@ -510,6 +525,7 @@ async function submitJob(body, type, rerunOf) {
   const url = rerunOf ? `api/jobs/${rerunOf}/rerun?${q}` : `api/jobs?${q}`;
   const res = await fetch(url, { method: 'POST', body, headers: { 'Content-Type': type, 'X-Pow': proof } }).catch(() => null);
   const data = await res?.json().catch(() => ({})) ?? {};
+  track('job_submit', { ok: !!res?.ok, code: res?.status || 0, rerun: !!rerunOf });
   if (!res?.ok) {
     show(rerunOf && state.cartoonImg ? 'result' : 'upload');
     return showError(data.error || `提交失败（${res ? `HTTP ${res.status}` : '网络错误'}）`);
@@ -553,8 +569,8 @@ async function pollJob(id) {
     if (r.status === 404) { navigate('', true); return showError(j.error || '作品不存在或已删除'); }
     if (!r.ok) { await sleep(backoff); backoff = Math.min(10_000, backoff * 1.6); continue; } // 限流等临时错误：等一会儿再查
     backoff = 1500;
-    if (j.status === 'done') break;
-    if (j.status === 'error' || j.status === 'cancelled') { navigate('', true); return showError(j.error || '生成失败'); }
+    if (j.status === 'done') { track('job_done', { mode: j.mode, secs: j.elapsed }); break; }
+    if (j.status === 'error' || j.status === 'cancelled') { track('job_fail', { mode: j.mode }); navigate('', true); return showError(j.error || '生成失败'); }
     const sec = Math.round((Date.now() - t0) / 1000);
     $('workMsg').textContent = j.status === 'queued' ? `排队中（前面 ${j.ahead} 个）… ${sec}s` : `AI 正在画… ${j.elapsed}s`;
     await sleep(1500);
@@ -590,6 +606,7 @@ async function uploadThumb(id) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function setCartoon(blob, job) {
+  track('result_view', { mode: state.lastMode || '' });
   await ready;
   if (job?.params) applyParams(job.params);
   state.cartoonBlob = blob;
@@ -612,6 +629,8 @@ function bindControls() {
   for (const id of ['palette', 'size', 'colors', 'outline', 'removeBg', 'outer', 'cleanup', 'gridMode']) {
     $(id).addEventListener('input', () => {
       if (id === 'outline') state.outlineTouched = true;
+      if (id === 'palette') track('palette_change', { palette: $('palette').value });
+      else if (id !== 'size') trackOnce(`param_${id}`);
       if (id === 'size') leaveGridMode(); // 手动改尺寸 = 不再按 AI 像素一格一豆
       if (id === 'palette') { try { localStorage.setItem('pindou.palette', $('palette').value); } catch {} state.highlight = -1; }
       syncLabels(); rerun();
@@ -620,22 +639,25 @@ function bindControls() {
   $('sizeChips').addEventListener('click', (e) => {
     const n = e.target.dataset?.n; if (!n) return;
     leaveGridMode();
+    track('size_change', { size: +n });
     $('size').value = n; syncLabels(); regenerate();
   });
   for (const id of ['board', 'showCodes']) $(id).addEventListener('input', () => { renderStats(); draw(); });
   for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => {
     state.view = t.dataset.view;
+    track('view_tab', { view: state.view });
     document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
     draw();
   });
   // 第一次放大直接到能看清色号的大小（手机上「适应」时格子只有 6～8 点）
-  $('zoomIn').addEventListener('click', () => { const c = state.zoom || fitCell(); state.zoom = Math.min(48, c < 14 ? 15 : c * 1.4); draw(); });
+  $('zoomIn').addEventListener('click', () => { track('zoom', { dir: 'in' }); const c = state.zoom || fitCell(); state.zoom = Math.min(48, c < 14 ? 15 : c * 1.4); draw(); });
   $('zoomOut').addEventListener('click', () => { state.zoom = Math.max(4, (state.zoom || fitCell()) / 1.4); draw(); });
   $('zoomFit').addEventListener('click', () => { state.zoom = 0; draw(); });
   window.addEventListener('resize', debounce(() => state.zoom === 0 && draw(), 150));
   $('legend').addEventListener('click', (e) => {
     const el = e.target.closest('[data-idx]'); if (!el) return;
     const idx = +el.dataset.idx;
+    track('highlight', { from: 'legend' });
     state.highlight = state.highlight === idx ? -1 : idx;
     renderLegend(); draw();
   });
@@ -644,13 +666,15 @@ function bindControls() {
   $('view').addEventListener('click', (e) => {
     const c = onHover(e);
     if (c === undefined) return;
+    track('highlight', { from: 'chart' });
     state.highlight = c < 0 || state.highlight === c ? -1 : c;
     renderLegend(); draw();
   });
-  $('dlChart').addEventListener('click', () => download(exportChart(), 'pindou-chart.png'));
-  $('dlBeads').addEventListener('click', () => download(renderBeads(state.pattern, 16), 'pindou-preview.png'));
-  $('dlCsv').addEventListener('click', downloadCsv);
-  $('dlPdf').addEventListener('click', downloadPdf);
+  $('dlChart').addEventListener('click', () => { track('download', dlProps('png')); download(exportChart(), 'pindou-chart.png'); });
+  $('dlBeads').addEventListener('click', () => { track('download', dlProps('preview')); download(renderBeads(state.pattern, 16), 'pindou-preview.png'); });
+  $('dlCsv').addEventListener('click', () => { track('download', dlProps('csv')); downloadCsv(); });
+  $('dlPdf').addEventListener('click', () => { track('download', dlProps('pdf')); downloadPdf(); });
+  $('dlCartoon').addEventListener('click', () => track('download', dlProps('ai_image')));
   $('pitch').addEventListener('input', () => { state.pitchTouched = true; });
 }
 
@@ -976,6 +1000,8 @@ function setObjectUrl(key, blob) {
   if (key === 'srcPreview') $('srcPreview').src = objectUrls[key];
   return objectUrls[key];
 }
+
+const dlProps = (kind) => ({ kind, palette: $('palette').value, w: state.pattern?.width, h: state.pattern?.height, colors: state.pattern?.legend.length, mode: state.lastMode || '' });
 
 function debounce(fn, ms) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
