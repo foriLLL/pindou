@@ -60,6 +60,42 @@ function renderRoute() {
 function showCreate() {
   state.jobId = null;
   show('upload');
+  checkLastJob();
+}
+
+// ---------- 上次的任务：关掉页面再回来时提醒 ----------
+// 生成在服务器上异步进行；浏览器记住最近一次提交的任务，回到首页时告诉用户它的状态
+const LAST_JOB = 'pindou.lastJob';
+const getLastJob = () => { try { return JSON.parse(localStorage.getItem(LAST_JOB) || 'null'); } catch { return null; } };
+const setLastJob = (v) => { try { v ? localStorage.setItem(LAST_JOB, JSON.stringify(v)) : localStorage.removeItem(LAST_JOB); } catch {} };
+let lastJobTimer = null;
+async function checkLastJob() {
+  clearTimeout(lastJobTimer);
+  const last = getLastJob();
+  $('resumeBanner').hidden = true;
+  if (!last || Date.now() - last.at > 3 * 86400_000) return setLastJob(null);
+  await userReady;
+  const r = await fetch(`api/jobs/${last.id}`).catch(() => null);
+  if (!r || location.hash || $('upload').hidden) return;
+  if (r.status === 404) return setLastJob(null);
+  if (!r.ok) return;
+  const j = await r.json();
+  const show = (dot, title, sub, btn) => {
+    $('resumeDot').className = `resume-dot ${dot}`;
+    $('resumeTitle').textContent = title; $('resumeSub').textContent = sub;
+    $('resumeGo').textContent = btn; $('resumeGo').hidden = !btn;
+    $('resumeBanner').hidden = false;
+  };
+  if (j.status === 'queued' || j.status === 'running') {
+    show('busy', '有一张图正在生成', j.status === 'queued' ? `排队中，前面还有 ${j.ahead} 个` : `已经画了 ${j.elapsed} 秒，画好会保存在「我的作品」`, '查看进度');
+    lastJobTimer = setTimeout(checkLastJob, 5000); // 画好后提醒自动变成“已经好了”
+  } else if (j.status === 'done') {
+    show('done', '上次生成的图已经好了', '点一下就能看到图纸', '查看');
+  } else {
+    show('fail', '上次生成没有成功', j.error || '可以换张图再试一次', '');
+    setLastJob(null);
+  }
+  track('resume_banner', { status: j.status });
 }
 
 function setNav(which) {
@@ -114,6 +150,8 @@ function bindAccount() {
   $('brand').addEventListener('click', () => navigate(''));
   $('histNew').addEventListener('click', () => navigate(''));
   $('histEmptyGo').addEventListener('click', () => navigate(''));
+  $('resumeGo').addEventListener('click', () => { const l = getLastJob(); if (l) { track('resume_open'); navigate(`#job=${l.id}`); } });
+  $('resumeClose').addEventListener('click', () => { $('resumeBanner').hidden = true; clearTimeout(lastJobTimer); setLastJob(null); });
   $('histGrid').addEventListener('click', onHistoryClick);
 }
 
@@ -536,6 +574,7 @@ async function submitJob(body, type, rerunOf) {
     return showError(data.error || `提交失败（${res ? `HTTP ${res.status}` : '网络错误'}）`);
   }
   history.pushState(null, '', `#job=${data.id}`);
+  setLastJob({ id: data.id, at: Date.now() });
   refreshUsage();
   await pollJob(data.id);
 }
@@ -609,6 +648,7 @@ async function pollJob(id) {
     return;
   }
   state.job = job;
+  if (getLastJob()?.id === id) setLastJob(null); // 已经看到结果，不再提醒
   state.lastMode = job?.mode === 'text' ? 'text' : 'photo';
   if (job?.mode === 'text' && job.subject) $('subject').value = job.subject;
   if (job?.style) { $('style').value = job.style; syncStyle(); }

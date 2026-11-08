@@ -416,3 +416,15 @@ button:hover, .btn:hover { border-color: var(--accent); }
   .ex-cards { grid-auto-flow: row; grid-template-columns: repeat(5, 1fr); overflow: visible; }
 }
 #workRetry { margin-top: 12px; padding: 10px 28px; }
+/* 上次任务提醒条 */
+.resume { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; padding: 14px 16px; border-color: var(--accent); background: var(--soft); }
+.resume-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.resume-text small { color: var(--muted); font-size: 13px; }
+.resume .primary { padding: 8px 16px; white-space: nowrap; }
+.resume .link { color: var(--muted); padding: 4px; }
+.resume-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+.resume-dot.busy { background: #f5a623; animation: pulse 1.2s ease-in-out infinite; }
+.resume-dot.done { background: #2fa36b; }
+.resume-dot.fail { background: var(--err); }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .resume-dot.busy { animation: none; } }
