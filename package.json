@@ -1,0 +1,12 @@
+{
+  "name": "pindou",
+  "version": "1.0.0",
+  "description": "Turn photos or text into perler / fuse bead patterns: AI pixel-art restyling plus in-browser pattern conversion with real bead palettes.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.mjs"
+  }
+}

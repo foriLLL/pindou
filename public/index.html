@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#faf6f0">
+<title>拼豆图纸生成器</title>
+<meta name="description" content="上传照片，AI 转成卡通风格，再生成带色号的拼豆图纸">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='9' cy='9' r='6' fill='%23ff7a59'/><circle cx='23' cy='9' r='6' fill='%23ffc857'/><circle cx='9' cy='23' r='6' fill='%234cb8a5'/><circle cx='23' cy='23' r='6' fill='%235b7cfa'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand" id="brand" role="link" tabindex="0" title="回到生成页"><span class="dots"><i></i><i></i><i></i><i></i></span>拼豆图纸<span class="brand-long">生成器</span></div>
+  <nav class="nav">
+    <div class="navtabs">
+      <button class="tnav on" id="navCreate">生成</button>
+      <button class="tnav" id="navHistory">我的作品</button>
+    </div>
+    <button class="navbtn id-chip" id="navMe" title="我的 ID（换设备同步用）"><span class="nb-short">ID</span><span class="nb-long" id="meId">…</span></button>
+  </nav>
+</header>
+
+<main>
+  <!-- 上传：选图 → 选风格 → 生成 -->
+  <section id="upload" class="upload">
+    <div class="modebar">
+      <label><input type="radio" name="mode" value="ai" checked><span>照片转换</span></label>
+      <label><input type="radio" name="mode" value="text"><span>文字创作</span></label>
+      <label><input type="radio" name="mode" value="direct"><span>直接转换</span></label>
+    </div>
+    <p class="mode-hint" id="modeHint"></p>
+
+    <div class="card step" id="stepImage">
+      <div class="step-title"><i>1</i>选择图片</div>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="image/*,.heic,.heif" hidden>
+        <div class="drop-inner">
+          <div class="drop-icon">＋</div>
+          <div class="drop-title">点击上传图片</div>
+          <div class="drop-sub">也可以拖拽或粘贴 · JPG / PNG / WebP / iPhone HEIC</div>
+        </div>
+      </label>
+      <div class="picked" id="picked" hidden>
+        <img id="pickedImg" alt="已选图片">
+        <div class="picked-info">
+          <b>已选好图片</b>
+          <small id="pickedMeta"></small>
+          <button type="button" class="ghost" id="repick">换一张</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card step" id="stepSubject" hidden>
+      <div class="step-title"><i>1</i>想画什么</div>
+      <div id="subjectSlotUpload">
+        <div id="subjectBox" class="style-box">
+          <textarea id="subject" rows="3" maxlength="500" placeholder="例如：哆啦A梦开着一辆银色带青绿色条纹的 F1 赛车，侧前方视角，开心地挥手"></textarea>
+          <div class="hint-small">写清楚角色、动作、道具和配色，越具体越好。点下面的示例试试（效果图为默认风格实际生成）：</div>
+          <div class="ex-cards" id="subjectExamples"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card step" id="stepStyle">
+      <div class="step-title"><i>2</i>选择风格</div>
+      <div id="styleSlotUpload">
+        <div id="styleBox" class="style-box">
+          <div class="style-cards" id="presetChips"></div>
+          <div class="demo-note">示例图由 AI 示例照片生成，仅供感受风格</div>
+          <details class="adv" id="promptDetails">
+            <summary>查看 / 修改提示词</summary>
+            <textarea id="style" rows="6" maxlength="1000" placeholder="描述想要的风格，例如：画成宫崎骏动画风格，只保留猫，不要人"></textarea>
+            <div class="style-meta"><span id="styleCount"></span><button type="button" class="link" id="styleReset">恢复预设原文</button></div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="gen-bar">
+      <button id="genBtn" class="primary big" disabled>生成拼豆图纸</button>
+      <div class="quota-line" id="quotaLine"></div>
+    </div>
+    <p class="privacy">照片和描述会发送给第三方 AI 服务处理。生成的图片保存在本站，只有持有你 ID 的人能看到；原图保存 30 天后自动删除。</p>
+  </section>
+
+  <!-- 生成中 -->
+  <section id="working" class="card working" hidden>
+    <img id="srcPreview" alt="">
+    <div>
+      <div class="spinner"></div>
+      <div id="workMsg" class="work-msg">正在卡通化…</div>
+      <div class="work-sub">通常需要 20～60 秒，请不要关闭页面</div>
+    </div>
+  </section>
+
+  <div id="error" class="error" hidden></div>
+
+  <!-- 我的作品 -->
+  <section id="historyView" hidden>
+    <div class="hist-head">
+      <h2>我的作品</h2>
+      <button class="primary" id="histNew">＋ 去生成</button>
+    </div>
+    <div class="hist-grid" id="histGrid"></div>
+    <div class="hist-empty" id="histEmpty" hidden><p>还没有作品，去生成第一张吧。</p><button class="primary" id="histEmptyGo">去生成</button></div>
+  </section>
+
+  <!-- 我的 ID / 多设备同步 -->
+  <dialog id="meDialog" class="sheet">
+    <div class="sheet-head"><b>我的 ID</b><button class="link" id="meClose" aria-label="关闭">关闭</button></div>
+    <div class="me-id" id="meIdBig"></div>
+    <p class="me-tip">这个 ID 就是你的「钥匙」：作品都存在它名下。不用注册登录，本设备会自动记住。<b>不要发给陌生人</b>，拿到它的人能看到你的作品。</p>
+    <div class="me-usage" id="meUsage"></div>
+    <h4>在另一台设备上同步</h4>
+    <div class="me-sync">
+      <div class="qr" id="meQr"></div>
+      <div class="me-sync-text">
+        <p>用另一台设备扫码，或打开同步链接，就能看到同样的作品。</p>
+        <button class="primary" id="meCopyLink">复制同步链接</button>
+        <button class="ghost" id="meCopyId">复制 ID</button>
+      </div>
+    </div>
+    <h4>切换到已有 ID</h4>
+    <div class="me-switch">
+      <input id="meSwitchInput" placeholder="输入 10 位 ID，如 K7MQ3-XPA9D" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button class="ghost" id="meSwitchBtn">切换</button>
+    </div>
+    <p class="me-tip small">切换前请先记下当前 ID，以后可以切回来。</p>
+  </dialog>
+
+  <!-- 结果 -->
+  <section id="result" hidden>
+    <div class="layout">
+      <aside class="side">
+        <div class="card card-cartoon">
+          <div class="thumb-wrap"><img id="cartoon" alt="卡通图"></div>
+          <div class="btns">
+            <button id="regen" class="ghost">重新卡通化</button>
+            <a id="dlCartoon" class="ghost btn" download="cartoon.png">下载卡通图</a>
+          </div>
+          <details class="restyle" id="restyle">
+            <summary>换个风格 / 改提示词</summary>
+            <div id="subjectSlotResult"></div>
+            <div id="styleSlotResult"></div>
+            <button id="regen2" class="primary full">按新风格重新生成</button>
+          </details>
+        </div>
+
+        <div class="card controls">
+          <label>色卡品牌
+            <select id="palette"></select>
+          </label>
+          <label class="check grid-opt" id="gridOpt" hidden><input type="checkbox" id="gridMode" checked> 按 AI 画的像素一格一豆 <small id="gridInfo"></small></label>
+          <label id="sizeLabel">尺寸（长边豆数）<b id="sizeVal"></b>
+            <input type="range" id="size" min="16" max="150" step="1" value="52">
+            <div class="chips" id="sizeChips"></div>
+          </label>
+          <label>最多颜色数 <b id="colorsVal"></b>
+            <input type="range" id="colors" min="3" max="48" step="1" value="20">
+          </label>
+          <label>描边加强 <b id="outlineVal"></b>
+            <input type="range" id="outline" min="0" max="10" step="1" value="4">
+          </label>
+          <label class="check"><input type="checkbox" id="removeBg" checked> 去掉背景（背景处不放豆）</label>
+          <label class="check"><input type="checkbox" id="outer" checked> 闭合外轮廓描边</label>
+          <label class="check"><input type="checkbox" id="cleanup" checked> 清理孤立杂豆</label>
+          <label>拼板分割线
+            <select id="board">
+              <option value="0">不显示</option>
+              <option value="29">29×29（标准 5mm 方板）</option>
+              <option value="52" selected>52×52（2.6mm 迷你豆方板）</option>
+            </select>
+          </label>
+        </div>
+      </aside>
+
+      <div class="main-col">
+        <div class="card notice" id="directNotice" hidden>
+          <div><b>当前是「直接转换」：图片没有经过 AI 卡通化。</b>照片直接转换通常很差（背景被误删成大片空白、颜色杂乱），照片请用 AI 卡通化。</div>
+          <button id="toAi" class="primary">用 AI 卡通化这张图</button>
+        </div>
+        <div class="card stats" id="stats"></div>
+        <div class="card chart-card">
+          <div class="toolbar">
+            <div class="tabs">
+              <button class="tab on" data-view="chart">图纸</button>
+              <button class="tab" data-view="beads">成品预览</button>
+            </div>
+            <div class="zoom">
+              <label class="check small"><input type="checkbox" id="showCodes" checked> 色号</label>
+              <button id="zoomOut" aria-label="缩小">−</button>
+              <button id="zoomFit">适应</button>
+              <button id="zoomIn" aria-label="放大">＋</button>
+            </div>
+          </div>
+          <div class="canvas-wrap" id="canvasWrap"><canvas id="view"></canvas></div>
+          <div class="hint-line" id="hover">点图上的格子或下方色号，可高亮同色位置</div>
+        </div>
+        <div class="card card-legend">
+          <div class="legend-head">
+            <h3>色号清单</h3>
+            <button class="link" id="clearHl" hidden>取消高亮</button>
+          </div>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="card downloads">
+          <div class="print-row">
+            <button id="dlPdf" class="primary">下载 1:1 打印版 PDF</button>
+            <label class="pitch">孔距 <input type="number" id="pitch" min="2" max="10" step="0.01" value="2.6"> mm</label>
+            <div class="print-tip">垫在透明拼板下对着放豆：打印时选「实际大小 / 100%」，每页一块板；对不齐就量 10 个孔的长度 ÷ 10 改孔距</div>
+          </div>
+          <button id="dlChart" class="ghost">下载图纸 PNG</button>
+          <button id="dlBeads" class="ghost">下载成品预览</button>
+          <button id="dlCsv" class="ghost">下载色号清单 CSV</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">色卡数据来自 <a href="https://github.com/HansBug/pypindou" target="_blank" rel="noopener">pypindou</a>（Apache-2.0）；屏幕颜色与实物豆子会有偏差，购买前请以实物色卡为准。</footer>
+</main>
+<script src="vendor/qrcode.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
