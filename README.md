@@ -74,20 +74,29 @@ node tools/try.mjs in.rgba W H out.ppm [长边] [颜色数] [色卡id]
 |---|---|---|
 | `OPENAI_API_KEY` | — | 必填，图像接口的密钥 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 任意 OpenAI 兼容的图像接口地址 |
-| `IMAGE_MODELS` | `gpt-image-2.5-flare,gpt-image-2.5-sunburst` | 使用第一个 |
+| `IMAGE_MODELS` | `gpt-image-2.5-flare,gpt-image-2.5-sunburst` | 使用第一个；请改成你的服务商实际支持的图像模型名 |
 | `PORT` / `HOST` | `8645` / `127.0.0.1` | 监听地址 |
 | `DATA_DIR` | `./data` | 数据库与图片目录 |
 | `POW_SECRET` | 启动时随机 | 工作量证明签名密钥，固定后重启不失效 |
 | `POW_BITS` | `18` | 工作量证明难度 |
 | `USER_DAILY` / `IP_DAILY` / `GLOBAL_DAILY` | `20` / `40` / `200` | 每 ID / 每 IP / 全站每日 AI 生成次数 |
+| `USER_FAIL_DAILY` / `IP_FAIL_DAILY` | `10` / `20` | 每 ID / 每 IP 每日失败次数上限（失败不计入生成次数） |
+| `MIN_FREE_MB` | `500` | 磁盘剩余低于此值时拒绝新的照片任务 |
+| `TRUST_PROXY` | 空 | 额外信任的反向代理地址（逗号分隔）；默认只信任来自 127.0.0.1 / ::1 的 `X-Forwarded-For` |
 | `USER_ACTIVE` / `MAX_RUNNING` / `MAX_QUEUE` | `2` / `3` / `20` | 每 ID 进行中任务、全站并发、排队上限 |
 | `NEW_USERS_PER_IP` / `CONVERT_PER_IP` | `10` / `30` | 每 IP 每日新建 ID 数、HEIC 转换次数 |
 | `SRC_KEEP_DAYS` | `30` | 原图保留天数 |
 | `LOG_HEADERS` | 空 | 记录到日志的上游响应头（逗号分隔），便于观察额度 |
 
+### 关于图像接口
+
+- 照片模式调用 `POST /images/edits`，以 **JSON** 发送参考图：`{"model", "prompt", "images": [{"image_url": "data:image/jpeg;base64,..."}], "size", "quality"}`；文字模式调用 `POST /images/generations`。
+- 部分 OpenAI 兼容服务的 `/images/edits` 只接受 multipart 表单，接入前请确认，必要时修改 `server.mjs` 的 `callModel`。
+- 上游返回 `b64_json` 或 `url` 均可；`url` 只接受 https，大小上限 20MB。
+
 ## 部署
 
-推荐放在反向代理（Caddy / Nginx）后面，服务只监听 `127.0.0.1`，由反向代理负责 HTTPS，并把客户端 IP 写入 `X-Forwarded-For`（限流依赖它）。
+推荐放在反向代理（Caddy / Nginx）后面，服务只监听 `127.0.0.1`，由反向代理负责 HTTPS，并把客户端 IP 写入 `X-Forwarded-For`（限流依赖它；只有来自本机的连接才会被信任）。
 
 systemd 示例：
 
@@ -95,6 +104,7 @@ systemd 示例：
 [Unit]
 Description=Pindou web app
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 DynamicUser=yes
@@ -104,6 +114,9 @@ EnvironmentFile=/etc/pindou/env
 WorkingDirectory=/opt/pindou
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/pindou/server.mjs
 Restart=always
+RestartSec=2
+MemoryMax=600M
+TasksMax=64
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes

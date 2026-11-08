@@ -81,7 +81,7 @@
       <button id="genBtn" class="primary big" disabled>生成拼豆图纸</button>
       <div class="quota-line" id="quotaLine"></div>
     </div>
-    <p class="privacy">照片和描述会发送给第三方 AI 服务处理。生成的图片保存在本站，只有持有你 ID 的人能看到；原图保存 30 天后自动删除。</p>
+    <p class="privacy">照片和描述会发送给第三方 AI 服务处理。生成的图片保存在本站，只有持有你 ID 的人能看到；原图保存 <span id="keepDays">30</span> 天后自动删除。</p>
   </section>
 
   <!-- 生成中 -->
@@ -151,7 +151,7 @@
           <label>色卡品牌
             <select id="palette"></select>
           </label>
-          <label class="check grid-opt" id="gridOpt" hidden><input type="checkbox" id="gridMode" checked> 按 AI 画的像素一格一豆 <small id="gridInfo"></small></label>
+          <label class="check grid-opt" id="gridOpt" hidden><input type="checkbox" id="gridMode" checked> 按像素一格一豆 <small id="gridInfo"></small></label>
           <label id="sizeLabel">尺寸（长边豆数）<b id="sizeVal"></b>
             <input type="range" id="size" min="16" max="150" step="1" value="52">
             <div class="chips" id="sizeChips"></div>

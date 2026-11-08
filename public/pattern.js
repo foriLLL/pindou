@@ -243,9 +243,16 @@ export function buildPattern(input, paletteDef, options = {}) {
 
 export const GRID_MIN_CONF = 0.12;
 const gridCache = new WeakMap();
+export const NATIVE_MAX = 160; // 长边不超过这个尺寸的小图，按原图像素一格一豆
 export function pixelGridOf(img) {
-  if (!gridCache.has(img)) gridCache.set(img, detectPixelGrid(img));
+  if (!gridCache.has(img)) gridCache.set(img, Math.max(img.width, img.height) <= NATIVE_MAX ? nativeGrid(img) : detectPixelGrid(img));
   return gridCache.get(img);
+}
+// 小像素图（如 32×32 精灵图）：每个像素就是一格
+function nativeGrid(img) {
+  const xs = Array.from({ length: img.width + 1 }, (_, i) => i);
+  const ys = Array.from({ length: img.height + 1 }, (_, i) => i);
+  return { p: 1, ox: 0, oy: 0, conf: 1, native: true, cols: img.width, rows: img.height, xs, ys };
 }
 
 function buildFromGrid(o, p, work, mask, box, grid, scale) {
@@ -292,7 +299,7 @@ function buildFromGrid(o, p, work, mask, box, grid, scale) {
     cells[q] = best;
     avgLab.set(rgbToLab(ar / fg, ag / fg, ab / fg), q * 3);
   }
-  if (o.removeBg && o.outerOutline) closeOuterOutline(cells, W, H, p);
+  if (o.removeBg && o.outerOutline && !grid.native) closeOuterOutline(cells, W, H, p);
   limitColors(cells, p, o.maxColors, avgLab);
   for (let pass = 0; pass < o.cleanup; pass++) if (!cleanupPass(cells, W, H, p, o.cleanupDE)) break;
   const out = summarize(cells, W, H, p);
@@ -450,6 +457,8 @@ export function detectPixelGrid(img) {
     return { R: Math.hypot(re, im) / (tot || 1), phase: Math.atan2(im, re) };
   };
   const minP = 4, maxP = Math.min(80, Math.min(w, h) / 12);
+  const none = { p: 1, ox: 0, oy: 0, conf: 0, cols: w, rows: h, xs: [0, w], ys: [0, h] };
+  if (maxP < minP) return none; // 图太小，没法检测网格
   const scores = [];
   let max = 0;
   for (let p = minP; p <= maxP; p += 0.05) {
@@ -461,6 +470,7 @@ export function detectPixelGrid(img) {
   // 高分（≥ 0.6×最高分）的候选里取最大的 p，并在其邻域内取局部最优
   let pick = null;
   for (const c of scores) if (c.s >= 0.6 * max && (!pick || c.p > pick.p + 1)) pick = c;
+  if (!pick || !(max > 0)) return none; // 纯色图等没有边缘的情况
   for (const c of scores) if (Math.abs(c.p - pick.p) <= 1 && c.s > pick.s) pick = c;
   const off = (ph, p) => (((ph / (2 * Math.PI)) * p) % p + p) % p;
   const P = pick.p, ox = off(pick.sx.phase, P), oy = off(pick.sy.phase, P);

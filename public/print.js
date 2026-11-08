@@ -197,14 +197,14 @@ export async function buildPrintPdf(pattern, { pitch, board, title = '拼豆图�
   const b = board > 0 ? board : (pattern.palette.beadMm >= 5 ? 29 : 52);
   const layout = chunking(pattern, pitch, b);
   const total = layout.chunks.length + 1;
-  const pages = [];
-  pages.push(drawOverviewPage(pattern, layout, pitch, total, title));
-  layout.chunks.forEach((k, i) => pages.push(drawChunkPage(pattern, k, pitch, i + 2, total, title)));
+  // 一页一页画：画完立刻编码并释放画布（每页 A4@300dpi 约 35MB，全部同时存在手机会撑不住）
+  const draws = [() => drawOverviewPage(pattern, layout, pitch, total, title), ...layout.chunks.map((k, i) => () => drawChunkPage(pattern, k, pitch, i + 2, total, title))];
   const images = [];
-  for (let i = 0; i < pages.length; i++) {
-    onProgress?.(i + 1, pages.length);
-    images.push(await canvasToImage(pages[i]));
-    pages[i].width = pages[i].height = 0; // 释放内存
+  for (let i = 0; i < draws.length; i++) {
+    onProgress?.(i + 1, draws.length);
+    const c = draws[i]();
+    images.push(await canvasToImage(c));
+    c.width = c.height = 0;
   }
   return buildPdf(images);
 }

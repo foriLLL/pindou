@@ -26,6 +26,7 @@ function init() {
     try { const saved = localStorage.getItem('pindou.palette'); if (saved && pals.some((p) => p.id === saved)) $('palette').value = saved; } catch {}
     initStyle(cfg);
     state.cfg = cfg;
+    if (cfg.srcKeepDays) $('keepDays').textContent = cfg.srcKeepDays;
   })();
   ready.catch((e) => showError(`初始化失败：${e.message}`));
   bindAccount();
@@ -176,8 +177,19 @@ async function openHistory() {
   $('historyView').hidden = false; $('error').hidden = true;
   setNav('works');
   window.scrollTo(0, 0);
-  const r = await fetch('api/history');
-  const d = await r.json().catch(() => ({ items: [] }));
+  const r = await fetch('api/history').catch(() => null);
+  const d = r?.ok ? await r.json().catch(() => null) : null;
+  if (!d) {
+    $('histGrid').innerHTML = '';
+    $('histEmpty').hidden = false;
+    $('histEmpty').querySelector('p').textContent = '作品列表加载失败，请检查网络后重试。';
+    $('histEmptyGo').textContent = '重试';
+    $('histEmptyGo').onclick = () => openHistory();
+    return;
+  }
+  $('histEmpty').querySelector('p').textContent = '还没有作品，去生成第一张吧。';
+  $('histEmptyGo').textContent = '去生成';
+  $('histEmptyGo').onclick = null;
   if (d.usage) { state.usage = d.usage; renderUsage(); }
   const items = d.items || [];
   $('histEmpty').hidden = items.length > 0;
@@ -276,7 +288,7 @@ function syncStyle() {
   }
   const base = state.presets.find((p) => p.id === state.basePreset);
   $('styleReset').hidden = !base || base.prompt === text;
-  $('styleCount').textContent = `${$('style').value.length} / 1000${!exact && base ? ' · 已修改预设' : ''}`;
+  $('styleCount').textContent = `${$('style').value.length} / ${state.cfg?.maxStyle ?? 1000}${!exact && base ? ' · 已修改预设' : ''}`;
 }
 
 // 风格编辑框只有一份：上传页放在上传卡片里，结果页放在侧栏“换个风格”里
@@ -325,9 +337,10 @@ function bindUpload() {
   ];
   $('subjectExamples').innerHTML = EXAMPLES.map(([img, t]) => `
     <button type="button" class="excard" data-text="${t}">
-      <img src="examples/${img}.webp" alt="" loading="lazy" onerror="this.remove()">
+      <img src="examples/${img}.webp" alt="" loading="lazy">
       <span>${t}</span>
     </button>`).join('');
+  for (const img of $('subjectExamples').querySelectorAll('img')) img.addEventListener('error', () => img.remove());
   $('subjectExamples').addEventListener('click', (e) => {
     const card = e.target.closest('.excard'); if (!card) return;
     $('subject').value = card.dataset.text; syncGenBtn();
@@ -354,7 +367,8 @@ async function pick(file) {
   try {
     const blob = await normalizeImage(file);
     state.srcBlob = blob;
-    state.srcOriginal = file.type === 'image/png' ? file : blob; // 直接转换保留 PNG 透明背景
+    // 直接转换用原文件：保留透明背景，也避免像素图被 JPEG 压出杂色
+    state.srcOriginal = /^image\/(png|gif|webp|bmp)$/.test(file.type) ? file : blob;
     if (state.pickedUrl) URL.revokeObjectURL(state.pickedUrl);
     state.pickedUrl = URL.createObjectURL(blob);
     $('pickedImg').src = state.pickedUrl;
@@ -453,6 +467,7 @@ async function normalizeImage(file) {
   let bmp = await createImageBitmap(file).catch(() => null);
   if (!bmp) {
     // 浏览器解码不了（常见于 Chrome 打开 iPhone 的 HEIC 照片）：交给服务器转成 JPEG
+    await userReady;
     const res = await fetch('api/convert', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '无法读取这张图片，请换成 JPG / PNG 格式');
     bmp = await createImageBitmap(await res.blob()).catch(() => null);
@@ -470,7 +485,7 @@ async function normalizeImage(file) {
 async function cartoonize(blob) {
   state.lastMode = 'photo';
   show('working');
-  $('srcPreview').src = URL.createObjectURL(blob);
+  setObjectUrl('srcPreview', blob);
   $('workMsg').textContent = '正在上传…';
   await submitJob(blob, blob.type);
 }
@@ -522,21 +537,29 @@ async function resumeJob(id) {
   await pollJob(id);
 }
 
+let pollSeq = 0;
 async function pollJob(id) {
   state.jobId = id;
+  const seq = ++pollSeq; // 后退/前进时可能重复进入同一个任务，只让最新的一次轮询继续
+  const alive = () => seq === pollSeq && state.jobId === id;
   const t0 = Date.now();
+  let backoff = 1500;
   for (;;) {
-    if (state.jobId !== id) return;
-    let j;
-    try { j = await fetch(`api/jobs/${id}`).then((r) => r.json()); }
+    if (!alive()) return;
+    let r, j;
+    try { r = await fetch(`api/jobs/${id}`); j = await r.json(); }
     catch { await sleep(2000); continue; }
+    if (!alive()) return;
+    if (r.status === 404) { navigate('', true); return showError(j.error || '作品不存在或已删除'); }
+    if (!r.ok) { await sleep(backoff); backoff = Math.min(10_000, backoff * 1.6); continue; } // 限流等临时错误：等一会儿再查
+    backoff = 1500;
     if (j.status === 'done') break;
-    if (j.status === 'error' || j.error) { navigate('', true); return showError(j.error || '生成失败'); }
+    if (j.status === 'error' || j.status === 'cancelled') { navigate('', true); return showError(j.error || '生成失败'); }
     const sec = Math.round((Date.now() - t0) / 1000);
     $('workMsg').textContent = j.status === 'queued' ? `排队中（前面 ${j.ahead} 个）… ${sec}s` : `AI 正在画… ${j.elapsed}s`;
     await sleep(1500);
   }
-  if (state.jobId !== id || location.hash !== `#job=${id}`) { refreshUsage(); return; } // 用户已离开，结果在「我的作品」里
+  if (!alive() || location.hash !== `#job=${id}`) { refreshUsage(); return; } // 用户已离开，结果在「我的作品」里
   const job = await fetch(`api/jobs/${id}`).then((r) => r.json()).catch(() => null);
   const blob = await fetch(`api/jobs/${id}/image`).then((r) => r.ok ? r.blob() : Promise.reject(new Error('作品不存在或已删除')))
     .catch((e) => { navigate('', true); showError(e.message); return null; });
@@ -576,7 +599,7 @@ async function setCartoon(blob, job) {
   const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(bmp, 0, 0);
   state.cartoonImg = ctx.getImageData(0, 0, c.width, c.height);
-  const url = URL.createObjectURL(blob);
+  const url = setObjectUrl('cartoon', blob);
   $('cartoon').src = url; $('dlCartoon').href = url;
   state.highlight = -1;
   show('result');
@@ -634,7 +657,7 @@ function bindControls() {
 function leaveGridMode() {
   if (!$('gridOpt').hidden && $('gridMode').checked) {
     $('gridMode').checked = false;
-    showToast('已改为自定义尺寸（取消了「按 AI 像素一格一豆」）');
+    showToast('已改为自定义尺寸（取消了「按像素一格一豆」）');
   }
 }
 
@@ -664,7 +687,7 @@ function syncLabels() {
 
 function regenerate() {
   if (!state.cartoonImg) return;
-  const pal = state.palettes.find((p) => p.id === $('palette').value);
+  const pal = state.palettes.find((p) => p.id === $('palette').value) || state.palettes[0];
   if (!state.pitchTouched) $('pitch').value = pal.beadMm;
   // 检测是否为像素图：是的话默认一格一豆，尺寸由 AI 的像素决定
   const g = pixelGridOf(state.cartoonImg);
@@ -684,7 +707,7 @@ function regenerate() {
   $('gridInfo').textContent = isPixel ? `（检测到 ${state.pattern.grid ? `${state.pattern.width}×${state.pattern.height}` : '像素图'}）` : '';
   // 一格一豆时尺寸由 AI 的像素决定；尺寸控件仍可点，点了就自动切到自定义尺寸
   $('sizeLabel').classList.toggle('dim', !!state.pattern.grid);
-  $('sizeVal').textContent = state.pattern.grid ? `按 AI 像素 · 点下方可改` : $('size').value;
+  $('sizeVal').textContent = state.pattern.grid ? `按像素 · 点下方可改` : $('size').value;
   for (const b of $('sizeChips').children) b.classList.toggle('on', !state.pattern.grid && +b.dataset.n === +$('size').value);
   renderStats(); renderLegend(); draw();
   if (state.job) saveParams();
@@ -706,7 +729,12 @@ const saveParams = debounce(() => {
 }, 1000);
 
 function applyParams(p) {
-  for (const id of PARAM_IDS) if (p[id] != null) $(id).value = p[id];
+  for (const id of PARAM_IDS) {
+    if (p[id] == null) continue;
+    // 下拉框的值不在选项里（例如色卡以后改名）就保持当前值
+    if ($(id).tagName === 'SELECT' && ![...$(id).options].some((o) => o.value === String(p[id]))) continue;
+    $(id).value = p[id];
+  }
   for (const id of PARAM_CHECKS) if (typeof p[id] === 'boolean') $(id).checked = p[id];
   state.outlineTouched = !!p.outlineTouched;
   state.lastParams = JSON.stringify(p);
@@ -754,7 +782,9 @@ function fitCell() {
 function draw() {
   const p = state.pattern; if (!p) return;
   const cell = state.zoom || fitCell();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  // 画布边长控制在 4096 以内（iOS Safari 单个画布约 1670 万像素上限），超了就降低清晰度
+  const side = Math.max(p.width, p.height) * cell + AXIS * 2;
+  const dpr = Math.max(0.5, Math.min(2, window.devicePixelRatio || 1, 4096 / side));
   const src = state.view === 'chart'
     ? renderChart(p, { cell: cell * dpr, axis: AXIS * dpr, showCodes: $('showCodes').checked && cell >= 12, highlight: state.highlight, board: +$('board').value })
     : renderBeads(p, cell * dpr, state.highlight);
@@ -936,6 +966,15 @@ function downloadCsv() {
   const blob = new Blob(['﻿' + rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'pindou-colors.csv'; a.click();
+}
+
+// 同一个位置换图时回收上一个 blob URL，避免翻看作品时内存一直涨
+const objectUrls = {};
+function setObjectUrl(key, blob) {
+  if (objectUrls[key]) URL.revokeObjectURL(objectUrls[key]);
+  objectUrls[key] = URL.createObjectURL(blob);
+  if (key === 'srcPreview') $('srcPreview').src = objectUrls[key];
+  return objectUrls[key];
 }
 
 function debounce(fn, ms) {
