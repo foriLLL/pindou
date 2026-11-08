@@ -603,7 +603,8 @@ function bindControls() {
     document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
     draw();
   });
-  $('zoomIn').addEventListener('click', () => { state.zoom = Math.min(48, (state.zoom || fitCell()) * 1.4); draw(); });
+  // 第一次放大直接到能看清色号的大小（手机上「适应」时格子只有 6～8 点）
+  $('zoomIn').addEventListener('click', () => { const c = state.zoom || fitCell(); state.zoom = Math.min(48, c < 14 ? 15 : c * 1.4); draw(); });
   $('zoomOut').addEventListener('click', () => { state.zoom = Math.max(4, (state.zoom || fitCell()) / 1.4); draw(); });
   $('zoomFit').addEventListener('click', () => { state.zoom = 0; draw(); });
   window.addEventListener('resize', debounce(() => state.zoom === 0 && draw(), 150));
@@ -753,7 +754,7 @@ function draw() {
   const cell = state.zoom || fitCell();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const src = state.view === 'chart'
-    ? renderChart(p, { cell: cell * dpr, axis: AXIS * dpr, showCodes: $('showCodes').checked && cell >= 14, highlight: state.highlight, board: +$('board').value })
+    ? renderChart(p, { cell: cell * dpr, axis: AXIS * dpr, showCodes: $('showCodes').checked && cell >= 12, highlight: state.highlight, board: +$('board').value })
     : renderBeads(p, cell * dpr, state.highlight);
   const v = $('view');
   v.width = src.width; v.height = src.height;
