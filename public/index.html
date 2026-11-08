@@ -114,6 +114,14 @@
   </section>
 
   <!-- 我的 ID / 多设备同步 -->
+  <!-- iPhone 保存图片到相册 -->
+  <dialog id="saveDialog" class="sheet save-sheet">
+    <div class="sheet-head"><b>保存到相册</b><button class="link" id="saveClose" aria-label="关闭">关闭</button></div>
+    <p class="me-tip">长按下面的图片，选「存储到"照片"」。也可以点下面的按钮，在分享菜单里选「存储图像」。</p>
+    <div class="save-img"><img id="saveImg" alt="要保存的图片"></div>
+    <button class="primary full" id="saveShare">保存到相册</button>
+  </dialog>
+
   <dialog id="meDialog" class="sheet">
     <div class="sheet-head"><b>我的 ID</b><button class="link" id="meClose" aria-label="关闭">关闭</button></div>
     <div class="me-id" id="meIdBig"></div>

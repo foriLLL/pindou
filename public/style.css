@@ -428,3 +428,6 @@ button:hover, .btn:hover { border-color: var(--accent); }
 .resume-dot.fail { background: var(--err); }
 @keyframes pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .resume-dot.busy { animation: none; } }
+/* 保存到相册 */
+.save-img { margin-top: 12px; max-height: 60dvh; overflow: auto; background: #fff; border-radius: 12px; border: 1px solid var(--line); -webkit-touch-callout: default; }
+.save-img img { display: block; width: 100%; height: auto; -webkit-user-select: auto; -webkit-touch-callout: default; }

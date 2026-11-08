@@ -758,7 +758,18 @@ function bindControls() {
   $('dlBeads').addEventListener('click', () => { track('download', dlProps('preview')); download(renderBeads(state.pattern, 16), 'pindou-preview.png'); });
   $('dlCsv').addEventListener('click', () => { track('download', dlProps('csv')); downloadCsv(); });
   $('dlPdf').addEventListener('click', () => { track('download', dlProps('pdf')); downloadPdf(); });
-  $('dlCartoon').addEventListener('click', () => track('download', dlProps('ai_image')));
+  $('dlCartoon').addEventListener('click', (e) => {
+    track('download', dlProps('ai_image'));
+    if (isIOS && state.cartoonBlob) { e.preventDefault(); saveBlob(state.cartoonBlob, $('dlCartoon').download); }
+  });
+  $('saveClose').addEventListener('click', () => $('saveDialog').close());
+  $('saveDialog').addEventListener('click', (e) => { if (e.target === $('saveDialog')) $('saveDialog').close(); });
+  // 按钮点击是新的用户手势，分享菜单一定能弹出来（菜单里有「存储图像」）
+  $('saveShare').addEventListener('click', async () => {
+    if (!saveFile) return;
+    track('save_share_click');
+    try { await navigator.share({ files: [saveFile] }); } catch {}
+  });
   $('pitch').addEventListener('input', () => { state.pitchTouched = true; });
 }
 
@@ -1040,12 +1051,28 @@ function exportChart() {
   return c;
 }
 
+// iPhone / iPad 的 Safari 下载的图片只进「文件」App，进不了相册：改为弹出图片，长按或用分享菜单保存
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 function download(canvas, name) {
-  canvas.toBlob((b) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(b); a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-  }, 'image/png');
+  canvas.toBlob((b) => saveBlob(b, name), 'image/png');
+}
+
+function saveBlob(blob, name) {
+  if (isIOS && blob.type.startsWith('image/')) return showSaveSheet(blob, name);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
+let saveFile = null;
+function showSaveSheet(blob, name) {
+  saveFile = new File([blob], name, { type: blob.type });
+  $('saveImg').src = setObjectUrl('saveSheet', blob);
+  const canShare = !!(navigator.canShare && navigator.canShare({ files: [saveFile] }));
+  $('saveShare').hidden = !canShare;
+  $('saveDialog').showModal();
+  track('save_sheet_open');
 }
 
 async function downloadPdf() {

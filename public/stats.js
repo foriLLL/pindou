@@ -11,7 +11,7 @@ const EVENT_LABEL = {
   job_fail: '生成失败', result_view: '查看结果', regen_click: '重新生成', palette_change: '换色卡', size_change: '点尺寸按钮',
   view_tab: '切换图纸/成品预览', zoom: '放大', highlight: '高亮同色', download: '下载', history_item_open: '打开历史作品',
   history_delete: '删除作品', me_open: '打开「我的 ID」', sync_copy_id: '复制 ID', sync_copy_link: '复制同步链接', id_switch: '切换 ID',
-  error_shown: '出现错误提示', resume_banner: '看到「上次的图」提醒', resume_open: '从提醒打开上次的图', param_colors: '调颜色数', param_outline: '调描边', param_removeBg: '切换去背景',
+  error_shown: '出现错误提示', resume_banner: '看到「上次的图」提醒', save_sheet_open: '打开「保存到相册」', save_share_click: '用分享菜单保存', resume_open: '从提醒打开上次的图', param_colors: '调颜色数', param_outline: '调描边', param_removeBg: '切换去背景',
   param_outer: '切换外轮廓', param_cleanup: '切换清理杂豆', param_gridMode: '切换一格一豆',
 };
 const DOWNLOAD_LABEL = { pdf: '1:1 打印 PDF', png: '图纸 PNG', preview: '成品预览', csv: '色号清单 CSV', ai_image: 'AI 原图' };
