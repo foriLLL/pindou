@@ -1,0 +1,10 @@
+Pindou
+Copyright (c) 2026 foriLLL — MIT License (see LICENSE)
+
+This project bundles third-party components under their own licenses:
+
+- tools/pypindou-palettes.json and the derived public/palettes.json:
+  bead color data from HansBug/pypindou (https://github.com/HansBug/pypindou),
+  Apache License 2.0 — full text in third_party/pypindou-LICENSE.txt
+- public/vendor/qrcode.js: qrcode-generator by Kazuhiko Arase
+  (https://github.com/kazuhikoarase/qrcode-generator), MIT — license header in the file
