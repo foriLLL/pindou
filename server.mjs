@@ -169,6 +169,7 @@ function pump() {
     callModel(job, src)
       .then(({ image, meta }) => {
         const kept = store.setDone(id, image, meta);
+        if (kept) makeWebp(id);
         console.log(`[job] done ${job.model} ${Math.round((Date.now() - t0) / 1000)}s in=${meta.inTok} out=${meta.outTok} ${meta.size}${kept ? '' : ' (deleted, discarded)'} ${meta.headers}`.trimEnd());
       })
       .catch((e) => {
@@ -179,6 +180,39 @@ function pump() {
       .finally(() => { running--; pump(); });
   }
 }
+
+// 生成图另存一份无损 WebP（像素完全不变，体积约为 PNG 的一半），手机网络不稳时更容易下载成功。
+// 需要系统里有 cwebp（Ubuntu：apt install webp）；没有就继续用 PNG。
+let hasCwebp = null;
+function makeWebp(id) {
+  const out = store.webpPath(id), tmp = `${out}.tmp`;
+  if (hasCwebp === false || fs.existsSync(out)) return;
+  execFile('cwebp', ['-quiet', '-lossless', '-z', '6', store.imagePath(id), '-o', tmp], { timeout: 60_000 }, (err) => {
+    if (err) {
+      if (err.code === 'ENOENT') { hasCwebp = false; console.log('[webp] cwebp not installed, serving PNG'); }
+      else console.error('[webp]', id, err.message);
+      fs.rm(tmp, { force: true }, () => {});
+      return;
+    }
+    hasCwebp = true;
+    fs.rename(tmp, out, () => {});
+  });
+}
+// 启动时给已有的生成图补转（逐个转，避免一下子占满 CPU）
+setTimeout(async () => {
+  try {
+    const pngs = fs.readdirSync(path.join(DATA_DIR, 'images')).filter((f) => f.endsWith('.png'));
+    for (const f of pngs) {
+      const id = f.slice(0, -4);
+      if (hasCwebp === false) break;
+      if (!fs.existsSync(store.webpPath(id))) { makeWebp(id); await sleep(1500); }
+    }
+  } catch (e) { console.error('[webp backfill]', e.message); }
+}, 5000).unref();
+
+// 同一次提交的重发（网络断了页面自动重试）直接返回已建好的任务，不重复扣额度
+const recentRequests = new Map(); // `${userId}:${requestId}` -> { jobId, at }
+setInterval(() => { const t = Date.now() - 15 * 60_000; for (const [k, v] of recentRequests) if (v.at < t) recentRequests.delete(k); }, 60_000).unref();
 
 // 服务重启后，把未完成的任务重新排队
 for (const j of store.pending()) {
@@ -318,6 +352,13 @@ function jobView(j) {
 }
 
 async function createJob(req, res, url, userId, ip, from) {
+  const rid = String(req.headers['x-request-id'] || '').slice(0, 64);
+  const prev = rid && recentRequests.get(`${userId}:${rid}`);
+  if (prev) {
+    req.resume(); // 丢弃重发的请求体
+    const j = store.getJob(prev.jobId);
+    if (j) return send(res, 202, jobView(j));
+  }
   const proof = req.headers['x-pow'];
   const bad = pow.check(proof, userId);
   if (bad) return send(res, 403, { error: bad });
@@ -363,6 +404,7 @@ async function createJob(req, res, url, userId, ip, from) {
     console.error('[addJob]', e.message);
     return send(res, 507, { error: '服务器暂时无法保存图片，请稍后再试' });
   }
+  if (rid) recentRequests.set(`${userId}:${rid}`, { jobId: id, at: Date.now() });
   queue.push(id);
   pump();
   return send(res, 202, jobView(store.getJob(id)));
@@ -502,7 +544,8 @@ async function handle(req, res) {
     if (!sub && req.method === 'DELETE') { deleteJob(job); return send(res, 200, { ok: true }); }
     if (sub === 'image' && req.method === 'GET') {
       if (job.status !== 'done') return send(res, 409, { error: '图片尚未生成' });
-      return sendImageFile(res, store.imagePath(job.id), 'private, max-age=86400, immutable');
+      const webp = url.searchParams.get('format') !== 'png' && fs.existsSync(store.webpPath(job.id));
+      return sendImageFile(res, webp ? store.webpPath(job.id) : store.imagePath(job.id), 'private, max-age=86400, immutable');
     }
     if (sub === 'thumb' && req.method === 'GET') {
       if (!job.has_thumb) return send(res, 404, { error: 'no thumb' });

@@ -61,6 +61,8 @@ node --disable-warning=ExperimentalWarning server.mjs
 
 上传 iPhone 的 HEIC 照片时，Chrome / Firefox 无法在浏览器内解码，服务端会调用 `heif-dec` 转换；如需该功能请安装 libheif（Ubuntu：`apt install libheif-examples libheif-plugin-libde265`）。
 
+可选：安装 `cwebp`（Ubuntu：`apt install webp`）后，生成图会另存一份无损 WebP（像素不变，体积约小一半）供页面下载，手机弱网下更容易成功；没装就用 PNG。
+
 只测试转换引擎：
 
 ```bash

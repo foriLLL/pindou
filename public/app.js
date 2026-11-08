@@ -473,6 +473,7 @@ function show(which) {
 }
 
 function showError(msg) {
+  if (isNetErr(msg)) msg = '网络不太稳定，请检查网络后重试';
   track('error_shown', { msg: String(msg).slice(0, 40) });
   $('error').textContent = msg; $('error').hidden = false;
 }
@@ -523,7 +524,11 @@ async function submitJob(body, type, rerunOf) {
   const proof = await takePow();
   const q = new URLSearchParams({ style: $('style').value.trim() });
   const url = rerunOf ? `api/jobs/${rerunOf}/rerun?${q}` : `api/jobs?${q}`;
-  const res = await fetch(url, { method: 'POST', body, headers: { 'Content-Type': type, 'X-Pow': proof } }).catch(() => null);
+  // 同一次提交带同一个编号：网络断了自动重发，服务器认出是同一次，不会重复生成、重复扣次数
+  const rid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  $('workMsg').textContent = '正在上传…';
+  const res = await fetchRetry(url, { method: 'POST', body, headers: { 'Content-Type': type, 'X-Pow': proof, 'X-Request-Id': rid } },
+    { tries: 3, timeout: 60_000, onRetry: (n) => { $('workMsg').textContent = `网络不稳定，正在重试（${n}）…`; } }).catch(() => null);
   const data = await res?.json().catch(() => ({})) ?? {};
   track('job_submit', { ok: !!res?.ok, code: res?.status || 0, rerun: !!rerunOf });
   if (!res?.ok) {
@@ -560,10 +565,19 @@ async function pollJob(id) {
   const alive = () => seq === pollSeq && state.jobId === id;
   const t0 = Date.now();
   let backoff = 1500;
+  // 已等待时间在本地每秒刷新，不依赖网络请求的快慢
+  let status = 'running', ahead = 0, base = 0, baseAt = Date.now();
+  $('workRetry').hidden = true; $('workSub').textContent = '通常需要 20～60 秒，请不要关闭页面';
+  const tick = setInterval(() => {
+    if (!alive()) return clearInterval(tick);
+    const sec = Math.round(base + (Date.now() - baseAt) / 1000);
+    $('workMsg').textContent = status === 'queued' ? `排队中（前面 ${ahead} 个）… ${Math.round((Date.now() - t0) / 1000)}s` : `AI 正在画… ${sec}s`;
+  }, 1000);
+  try {
   for (;;) {
     if (!alive()) return;
     let r, j;
-    try { r = await fetch(`api/jobs/${id}`); j = await r.json(); }
+    try { r = await fetch(`api/jobs/${id}`, { signal: AbortSignal.timeout(10_000) }); j = await r.json(); }
     catch { await sleep(2000); continue; }
     if (!alive()) return;
     if (r.status === 404) { navigate('', true); return showError(j.error || '作品不存在或已删除'); }
@@ -571,15 +585,29 @@ async function pollJob(id) {
     backoff = 1500;
     if (j.status === 'done') { track('job_done', { mode: j.mode, secs: j.elapsed }); break; }
     if (j.status === 'error' || j.status === 'cancelled') { track('job_fail', { mode: j.mode }); navigate('', true); return showError(j.error || '生成失败'); }
-    const sec = Math.round((Date.now() - t0) / 1000);
-    $('workMsg').textContent = j.status === 'queued' ? `排队中（前面 ${j.ahead} 个）… ${sec}s` : `AI 正在画… ${j.elapsed}s`;
+    status = j.status; ahead = j.ahead; base = j.elapsed; baseAt = Date.now();
     await sleep(1500);
   }
+  } finally { clearInterval(tick); }
   if (!alive() || location.hash !== `#job=${id}`) { refreshUsage(); return; } // 用户已离开，结果在「我的作品」里
-  const job = await fetch(`api/jobs/${id}`).then((r) => r.json()).catch(() => null);
-  const blob = await fetch(`api/jobs/${id}/image`).then((r) => r.ok ? r.blob() : Promise.reject(new Error('作品不存在或已删除')))
-    .catch((e) => { navigate('', true); showError(e.message); return null; });
-  if (!blob) return;
+  $('workMsg').textContent = '画好了，正在下载图片…';
+  const job = await fetchRetry(`api/jobs/${id}`, {}, { tries: 3 }).then((r) => r.json()).catch(() => null);
+  let blob = null, notFound = false;
+  try {
+    const r = await fetchRetry(`api/jobs/${id}/image`, {}, { tries: 4, timeout: 90_000, onRetry: (n) => { $('workMsg').textContent = `网络不稳定，正在重新下载图片（${n}）…`; } });
+    if (r.status === 404) notFound = true; else if (r.ok) blob = await r.blob();
+  } catch {}
+  if (!alive()) return;
+  if (notFound) { navigate('', true); return showError('作品不存在或已删除'); }
+  if (!blob) {
+    // 图片已经生成并保存在「我的作品」里，只是这次没下载下来：原地给重试按钮
+    track('error_shown', { msg: 'image_download_failed' });
+    $('workMsg').textContent = '图片已生成，但网络不稳定没下载下来';
+    $('workSub').textContent = '作品已保存在「我的作品」里，可以点重试，或稍后再打开';
+    $('workRetry').hidden = false;
+    $('workRetry').onclick = () => pollJob(id);
+    return;
+  }
   state.job = job;
   state.lastMode = job?.mode === 'text' ? 'text' : 'photo';
   if (job?.mode === 'text' && job.subject) $('subject').value = job.subject;
@@ -605,6 +633,21 @@ async function uploadThumb(id) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 带超时、网络错误自动重试的 fetch（跨境网络偶尔丢包，单次失败很常见）
+async function fetchRetry(url, opts = {}, { tries = 3, timeout = 15_000, onRetry } = {}) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fetch(url, { ...opts, signal: AbortSignal.timeout(timeout) });
+    } catch (e) {
+      last = e;
+      if (i < tries - 1) { onRetry?.(i + 1); await sleep(1000 * 2 ** i); }
+    }
+  }
+  throw last;
+}
+const isNetErr = (msg) => /load failed|failed to fetch|networkerror|network error|timed? ?out|aborted/i.test(String(msg));
+
 async function setCartoon(blob, job) {
   track('result_view', { mode: state.lastMode || '' });
   await ready;
@@ -617,6 +660,7 @@ async function setCartoon(blob, job) {
   ctx.drawImage(bmp, 0, 0);
   state.cartoonImg = ctx.getImageData(0, 0, c.width, c.height);
   const url = setObjectUrl('cartoon', blob);
+  $('dlCartoon').download = blob.type === 'image/webp' ? 'cartoon.webp' : 'cartoon.png';
   $('cartoon').src = url; $('dlCartoon').href = url;
   state.highlight = -1;
   show('result');
