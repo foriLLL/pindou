@@ -421,7 +421,9 @@ function syncMode() {
 function syncTech() {} // 技术提示词不再展示给用户
 
 function setDirect(direct) {
-  $('directNotice').hidden = !direct;
+  // 像素画本来就适合直接转换，不必提醒；只有看起来像照片时才提示改用 AI
+  const isPixel = !!state.cartoonImg && pixelGridOf(state.cartoonImg).conf >= GRID_MIN_CONF;
+  $('directNotice').hidden = !direct || isPixel;
   $('regen').textContent = direct ? '用 AI 卡通化' : '重新卡通化';
   $('regen').classList.toggle('primary', direct);
   $('regen').classList.toggle('ghost', !direct);
