@@ -103,10 +103,12 @@ function shrink(img, maxSide) {
     let r = 0, g = 0, b = 0, a = 0;
     for (let dy = 0; dy < f; dy++) {
       let o = ((y * f + dy) * sw + x * f) * 4;
-      for (let dx = 0; dx < f; dx++, o += 4) { r += src[o]; g += src[o + 1]; b += src[o + 2]; a += src[o + 3]; }
+      // 按透明度加权：透明像素（RGB 常为黑色）不参与颜色平均，否则主体边缘会发黑
+      for (let dx = 0; dx < f; dx++, o += 4) { const al = src[o + 3]; r += src[o] * al; g += src[o + 1] * al; b += src[o + 2] * al; a += al; }
     }
     const q = (y * w + x) * 4;
-    out[q] = r / n; out[q + 1] = g / n; out[q + 2] = b / n; out[q + 3] = a / n;
+    if (a > 0) { out[q] = r / a; out[q + 1] = g / a; out[q + 2] = b / a; }
+    out[q + 3] = a / n;
   }
   return { width: w, height: h, data: out };
 }
@@ -181,6 +183,8 @@ export function buildPattern(input, paletteDef, options = {}) {
   const work = shrink(input, 1024);
   const W0 = work.width, H0 = work.height, wd = work.data;
   const mask = o.removeBg ? backgroundMask(work, o.bgTolerance) : new Uint8Array(W0 * H0);
+  // 透明的地方一律不放豆：哪怕被主体围住、和四周不连通（比如轮子、甜甜圈中间的洞）
+  for (let i = 0, n = W0 * H0; i < n; i++) if (wd[i * 4 + 3] < 128) mask[i] = 1;
   const box = o.removeBg ? subjectBox(mask, W0, H0) : { x: 0, y: 0, w: W0, h: H0 };
 
   // 像素图：检测到 AI 画的像素网格时，一个像素对应一颗豆
